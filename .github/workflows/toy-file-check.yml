@@ -16,7 +16,7 @@ jobs:
     if: github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     env:
-      APP_ID: ${{ vars.TOY_CHECK_APP_ID }}
+      APP_ID: ${{ secrets.TOY_CHECK_APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.TOY_CHECK_APP_PRIVATE_KEY }}
       API_URL: ${{ github.api_url }}
       REPOSITORY: ${{ github.repository }}

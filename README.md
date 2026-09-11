@@ -17,9 +17,9 @@ The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/wo
 3. Install the App on the account or organisation that owns this repository, and grant it access to this repository. The workflow looks up that installation automatically, so there is no installation-ID secret.
 4. In this repository's **Settings → Secrets and variables → Actions**, add:
    - Secret `TOY_CHECK_APP_PRIVATE_KEY`: the complete PEM file, including `BEGIN`/`END` lines and line breaks.
-   - Variable `TOY_CHECK_APP_ID`: the numeric App ID displayed on the App's settings page.
+   - Secret `TOY_CHECK_APP_ID`: the numeric App ID displayed on the App's settings page.
 
-The App ID is public metadata, so it is deliberately an Actions *variable*, not a secret. Do **not** add the App's client secret: it is for the OAuth user-token flow and this workflow uses an installation token instead. Do not add a webhook secret either, because this project does not receive webhooks.
+The App ID is public metadata, but this toy project keeps it alongside the private key as an Actions secret. Do **not** add the App's client secret: it is for the OAuth user-token flow and this workflow uses an installation token instead. Do not add a webhook secret either, because this project does not receive webhooks.
 
 For a toy project installed only on your own account or organisation, you do not need to publish the App for public installation. Limit the installation to this repository. Keep the private key only in Actions secrets and rotate/delete it if it is exposed.
 
