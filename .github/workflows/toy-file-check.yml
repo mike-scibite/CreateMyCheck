@@ -94,13 +94,17 @@ jobs:
               conclusion='failure'
               title='check_result.txt failed'
               ;;
+            action_required)
+              conclusion='action_required'
+              title='check_result.txt requires action'
+              ;;
             *)
               conclusion='neutral'
               title='check_result.txt has no recognised result'
               ;;
           esac
 
-          summary="The pull request's check_result.txt contained: \`$result\`. Expected: \`success\`/\`pass\` or \`failure\`/\`fail\`."
+          summary="The pull request's check_result.txt contained: \`$result\`. Expected: \`success\`/\`pass\`, \`failure\`/\`fail\`, or \`action_required\`."
           check_run="$(jq -nc \
             --arg name 'Toy file check' \
             --arg head_sha "$PR_HEAD_SHA" \

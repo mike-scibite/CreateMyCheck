@@ -8,6 +8,7 @@ The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/wo
 | --- | --- |
 | `success` or `pass` | `success` |
 | `failure` or `fail` | `failure` |
+| `action_required` | `action_required` |
 | missing or any other value | `neutral` |
 
 ## One-time GitHub setup
