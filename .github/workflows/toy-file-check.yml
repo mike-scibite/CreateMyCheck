@@ -1,0 +1,124 @@
+name: Toy file check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# actions/checkout uses this token only to read the pull-request commit.  The
+# Check Run itself is created with the GitHub App installation token below.
+permissions:
+  contents: read
+
+jobs:
+  create-check-run:
+    # GitHub does not make repository secrets available to workflows started by
+    # fork PRs.  This also avoids exposing the App private key to untrusted code.
+    if: github.event.pull_request.head.repo.fork == false
+    environment: Mike
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: ${{ secrets.TOY_CHECK_APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.TOY_CHECK_APP_PRIVATE_KEY }}
+      API_URL: ${{ github.api_url }}
+      REPOSITORY: ${{ github.repository }}
+      REPOSITORY_ID: ${{ github.event.repository.id }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Read the pull-request version of check_result.txt
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Create a Check Run with curl
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A GitHub App JWT is valid for at most ten minutes.  The App ID is
+          # the JWT issuer; it is an identifier, not a credential.
+          base64url() {
+            openssl base64 -A | tr '+/' '-_' | tr -d '='
+          }
+
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$APP_PRIVATE_KEY" > "$key_file"
+          chmod 600 "$key_file"
+
+          now="$(date +%s)"
+          header="$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | base64url)"
+          payload="$(jq -nc \
+            --arg iss "$APP_ID" \
+            --argjson iat "$((now - 60))" \
+            --argjson exp "$((now + 540))" \
+            '{iat: $iat, exp: $exp, iss: $iss}' | base64url)"
+          unsigned_jwt="${header}.${payload}"
+          signature="$(printf '%s' "$unsigned_jwt" | openssl dgst -sha256 -sign "$key_file" | base64url)"
+          app_jwt="${unsigned_jwt}.${signature}"
+
+          # Find this repository's installation rather than storing an
+          # installation ID. Then mint a one-hour token limited to this repo
+          # and the single Checks: write permission.
+          installation="$(curl --fail-with-body --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $app_jwt" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "$API_URL/repos/$REPOSITORY/installation")"
+          installation_id="$(jq -er '.id' <<<"$installation")"
+
+          token_request="$(jq -nc \
+            --argjson repository_id "$REPOSITORY_ID" \
+            '{repository_ids: [$repository_id], permissions: {checks: "write"}}')"
+          installation_token="$(curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $app_jwt" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            -H 'Content-Type: application/json' \
+            --data "$token_request" \
+            "$API_URL/app/installations/$installation_id/access_tokens" \
+            | jq -er '.token')"
+
+          result='(missing)'
+          if [[ -f check_result.txt ]]; then
+            result="$(tr -d '\r\n' < check_result.txt | tr '[:upper:]' '[:lower:]')"
+          fi
+
+          case "$result" in
+            success|pass)
+              conclusion='success'
+              title='check_result.txt passed'
+              ;;
+            failure|fail)
+              conclusion='failure'
+              title='check_result.txt failed'
+              ;;
+            action_required)
+              conclusion='action_required'
+              title='check_result.txt requires action'
+              ;;
+            *)
+              conclusion='neutral'
+              title='check_result.txt has no recognised result'
+              ;;
+          esac
+
+          summary="The pull request's check_result.txt contained: \`$result\`. Expected: \`success\`/\`pass\`, \`failure\`/\`fail\`, or \`action_required\`."
+          check_run="$(jq -nc \
+            --arg name 'Toy file check' \
+            --arg head_sha "$PR_HEAD_SHA" \
+            --arg conclusion "$conclusion" \
+            --arg title "$title" \
+            --arg summary "$summary" \
+            '{name: $name, head_sha: $head_sha, status: "completed", conclusion: $conclusion, output: {title: $title, summary: $summary}}')"
+
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $installation_token" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            -H 'Content-Type: application/json' \
+            --data "$check_run" \
+            "$API_URL/repos/$REPOSITORY/check-runs" \
+            | jq '{id, name, status, conclusion, html_url}'
