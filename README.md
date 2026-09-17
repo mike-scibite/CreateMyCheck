@@ -1,19 +1,22 @@
-# GitHub App Check Run toy project
+# GitHub App JFrog security scan
 
-The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/workflows/toy-file-check.yml) reads the PR's version of `check_result.txt`, obtains a short-lived GitHub App installation token, and calls the Checks REST API with `curl`.
+The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/workflows/toy-file-check.yml) reads the PR's JFrog-style `check_result.txt`, obtains a short-lived GitHub App installation token, and calls GitHub's REST API with `curl`.
 
-`check_result.txt` controls the Check Run conclusion:
+The workflow counts the severity cells in the **Vulnerable Components** table and posts the totals in both a pull-request comment and the Check Run summary:
 
-| File value | Conclusion |
+| Severity | Symbol |
 | --- | --- |
-| `success` or `pass` | `success` |
-| `failure` or `fail` | `failure` |
-| `action_required` | `action_required` |
-| missing or any other value | `neutral` |
+| Critical | 🚨 |
+| High | 🔴 |
+| Medium | 🟠 |
+| Low | 🟡 |
+| Unknown | ⚪ |
+
+Critical findings create a failed Check Run and fail the workflow. If there are no Critical findings but one or more High findings, the Check Run is marked `action_required` to request attention; the workflow itself succeeds. All other results produce a successful Check Run.
 
 ## One-time GitHub setup
 
-1. In the GitHub App's **Permissions & events**, keep **Checks: Read and write**. No webhook subscription is needed for this workflow.
+1. In the GitHub App's **Permissions & events**, grant **Checks: Read and write** and **Issues: Read and write**. No webhook subscription is needed for this workflow. The Issues permission allows the app to comment on pull requests.
 2. Generate a private key under the App's **Private keys** section. Downloaded keys are PEM files; GitHub only lets you download each one once.
 3. Install the App on the account or organisation that owns this repository, and grant it access to this repository. The workflow looks up that installation automatically, so there is no installation-ID secret.
 4. In this repository's **Settings → Secrets and variables → Actions**, add:
@@ -26,7 +29,7 @@ For a toy project installed only on your own account or organisation, you do not
 
 ## Try it
 
-Create a branch, change `check_result.txt`, and open a pull request. The Check Run is attached to the PR head commit and appears as **Toy file check**. This workflow intentionally skips fork pull requests because GitHub withholds repository secrets from them.
+Create a branch, change `check_result.txt`, and open a pull request. The Check Run is attached to the PR head commit and appears as **JFrog security scan**. This workflow intentionally skips fork pull requests because GitHub withholds repository secrets from them.
 
 The workflow checks out untrusted PR content only to read a text file; it never executes content from the PR. Treat contributors who can open branches in this repository as trusted, because same-repository PR workflows can receive this App private-key secret.
 
@@ -40,9 +43,12 @@ GET /repos/{owner}/{repo}/installation
         │ installation ID
         ▼
 POST /app/installations/{id}/access_tokens
-        │ token scoped to this repository, Checks: write
+        │ token scoped to this repository, Checks + Issues: write
         ▼
 POST /repos/{owner}/{repo}/check-runs
+        │
+        ▼
+POST /repos/{owner}/{repo}/issues/{pr_number}/comments
 ```
 
 The REST endpoints and required Checks permission are documented by GitHub: [creating check runs](https://docs.github.com/en/rest/checks/runs#create-a-check-run), [authenticating as an installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation), and [using secrets safely with fork PRs](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions).

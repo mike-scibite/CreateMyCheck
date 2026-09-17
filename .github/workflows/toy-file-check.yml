@@ -1,11 +1,12 @@
-name: Toy file check
+name: JFrog security scan
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# actions/checkout uses this token only to read the pull-request commit.  The
-# Check Run itself is created with the GitHub App installation token below.
+# actions/checkout uses this token only to read the pull-request commit. The
+# Check Run and PR comment are created with the GitHub App installation token
+# below.
 permissions:
   contents: read
 
@@ -22,6 +23,7 @@ jobs:
       API_URL: ${{ github.api_url }}
       REPOSITORY: ${{ github.repository }}
       REPOSITORY_ID: ${{ github.event.repository.id }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Read the pull-request version of check_result.txt
@@ -30,7 +32,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Create a Check Run with curl
+      - name: Publish JFrog security scan result
         shell: bash
         run: |
           set -euo pipefail
@@ -59,7 +61,8 @@ jobs:
 
           # Find this repository's installation rather than storing an
           # installation ID. Then mint a one-hour token limited to this repo
-          # and the single Checks: write permission.
+          # and the permissions needed to create the check and comment on the
+          # pull request.
           installation="$(curl --fail-with-body --silent --show-error \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $app_jwt" \
@@ -69,7 +72,7 @@ jobs:
 
           token_request="$(jq -nc \
             --argjson repository_id "$REPOSITORY_ID" \
-            '{repository_ids: [$repository_id], permissions: {checks: "write"}}')"
+            '{repository_ids: [$repository_id], permissions: {checks: "write", issues: "write"}}')"
           installation_token="$(curl --fail-with-body --silent --show-error \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
@@ -80,33 +83,76 @@ jobs:
             "$API_URL/app/installations/$installation_id/access_tokens" \
             | jq -er '.token')"
 
-          result='(missing)'
+          # Count only severity cells in the JFrog "Vulnerable Components"
+          # table. This excludes scanner log lines and any text after the
+          # table, which can contain severity words but is not a finding.
+          declare -A findings=(
+            [Critical]=0
+            [High]=0
+            [Medium]=0
+            [Low]=0
+            [Unknown]=0
+          )
           if [[ -f check_result.txt ]]; then
-            result="$(tr -d '\r\n' < check_result.txt | tr '[:upper:]' '[:lower:]')"
+            while IFS=$'\t' read -r severity count; do
+              findings["$severity"]="$count"
+            done < <(
+              awk -F '│' '
+                /^Vulnerable Components[[:space:]]*$/ { awaiting_table = 1; next }
+                awaiting_table && /^┌/ { in_table = 1; awaiting_table = 0; next }
+                in_table && /^└/ { in_table = 0; next }
+                in_table {
+                  severity = $3
+                  gsub(/^[[:space:]]+|[[:space:]]+$/, "", severity)
+                  if (severity == "Critical" || severity == "High" || severity == "Medium" || severity == "Low" || severity == "Unknown") {
+                    counts[severity]++
+                  }
+                }
+                END {
+                  for (severity in counts) print severity "\t" counts[severity]
+                }
+              ' check_result.txt
+            )
           fi
 
-          case "$result" in
-            success|pass)
-              conclusion='success'
-              title='check_result.txt passed'
-              ;;
-            failure|fail)
-              conclusion='failure'
-              title='check_result.txt failed'
-              ;;
-            action_required)
-              conclusion='action_required'
-              title='check_result.txt requires action'
-              ;;
-            *)
-              conclusion='neutral'
-              title='check_result.txt has no recognised result'
-              ;;
-          esac
+          critical="${findings[Critical]}"
+          high="${findings[High]}"
+          medium="${findings[Medium]}"
+          low="${findings[Low]}"
+          unknown="${findings[Unknown]}"
 
-          summary="The pull request's check_result.txt contained: \`$result\`. Expected: \`success\`/\`pass\`, \`failure\`/\`fail\`, or \`action_required\`."
+          if (( critical > 0 )); then
+            conclusion='failure'
+            title='🚨 Critical JFrog security findings'
+            status_message="❌ $critical Critical finding(s) require remediation."
+          elif (( high > 0 )); then
+            conclusion='action_required'
+            title='⚠️ High JFrog security findings need attention'
+            status_message="⚠️ $high High finding(s) need attention."
+          else
+            conclusion='success'
+            title='✅ JFrog security scan passed'
+            status_message='✅ No Critical or High findings.'
+          fi
+
+          statistics="$(printf '| Severity | Events |\n| --- | ---: |\n| 🚨 Critical | %s |\n| 🔴 High | %s |\n| 🟠 Medium | %s |\n| 🟡 Low | %s |\n| ⚪ Unknown | %s |' \
+            "$critical" "$high" "$medium" "$low" "$unknown")"
+          summary="$(printf '## JFrog security scan\n\n%s\n\n%s' "$status_message" "$statistics")"
+
+          comment="$summary"
+          comment_payload="$(jq -nc --arg body "$comment" '{body: $body}')"
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $installation_token" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            -H 'Content-Type: application/json' \
+            --data "$comment_payload" \
+            "$API_URL/repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
+            | jq '{id, html_url}'
+
           check_run="$(jq -nc \
-            --arg name 'Toy file check' \
+            --arg name 'JFrog security scan' \
             --arg head_sha "$PR_HEAD_SHA" \
             --arg conclusion "$conclusion" \
             --arg title "$title" \
@@ -122,3 +168,9 @@ jobs:
             --data "$check_run" \
             "$API_URL/repos/$REPOSITORY/check-runs" \
             | jq '{id, name, status, conclusion, html_url}'
+
+          # Keep the PR comment and Check Run visible before failing the
+          # workflow for Critical findings.
+          if (( critical > 0 )); then
+            exit 1
+          fi
