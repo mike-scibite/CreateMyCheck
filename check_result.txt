@@ -5,7 +5,7 @@ Vulnerable Components
 │                │          │                           │ VERSION │ NAME                      │ VERSION                   │                     │        │
 09:16:01 [Info] Results can be uploaded to Github security tab automatically by upgrading your JFrog subscription.
 ├────────────────┼──────────┼───────────────────────────┼─────────┼───────────────────────────┼───────────────────────────┼─────────────────────┼────────┤
-│ CVE-2026-84939 │  High    │ sha256__fb31456220b147fac │         │ org.freemarker:freemarker │ 2.3.33                    │                     │ Maven  │
+│ CVE-2026-84939 │ Critical │ sha256__fb31456220b147fac │         │ org.freemarker:freemarker │ 2.3.33                    │                     │ Maven  │
 │                │          │ 5ec1914f8f4b798cfaba360de │         │                           │                           │                     │        │
 │                │          │ cda5593a46e2a76c9e10b8.ta │         │                           │                           │                     │        │
 │                │          │ r.gz                      │         │                           │                           │                     │        │
