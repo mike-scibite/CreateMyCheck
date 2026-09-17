@@ -16,7 +16,7 @@ Critical findings create a failed Check Run and fail the workflow. If there are 
 
 ## One-time GitHub setup
 
-1. In the GitHub App's **Permissions & events**, grant **Checks: Read and write** and **Issues: Read and write**. No webhook subscription is needed for this workflow. The Issues permission allows the app to comment on pull requests.
+1. In the GitHub App's **Permissions & events**, grant **Checks: Read and write** and **Pull requests: Read and write**. No webhook subscription is needed for this workflow. The Pull requests permission allows the app to comment on pull requests.
 2. Generate a private key under the App's **Private keys** section. Downloaded keys are PEM files; GitHub only lets you download each one once.
 3. Install the App on the account or organisation that owns this repository, and grant it access to this repository. The workflow looks up that installation automatically, so there is no installation-ID secret.
 4. In this repository's **Settings → Secrets and variables → Actions**, add:
@@ -52,3 +52,35 @@ POST /repos/{owner}/{repo}/issues/{pr_number}/comments
 ```
 
 The REST endpoints and required Checks permission are documented by GitHub: [creating check runs](https://docs.github.com/en/rest/checks/runs#create-a-check-run), [authenticating as an installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation), and [using secrets safely with fork PRs](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions).
+
+## Local Java API reproducer
+
+The Maven project in this repository performs the same GitHub App authentication flow using Java 17's HTTP and cryptography APIs. It reads the downloaded PKCS#1 PEM key directly; it never prints the private key, JWT, or installation token.
+
+Build it and authenticate without creating a comment:
+
+```bash
+mvn clean verify
+mvn -q exec:java -Dexec.args='--dry-run'
+```
+
+Post a test comment to PR #1:
+
+```bash
+mvn -q exec:java \
+  -Dexec.args='--pr 1 --body "Local Java GitHub App API test (safe to delete)."'
+```
+
+Defaults are set for this test repository and App:
+
+- App ID: `4909825` (public GitHub App metadata)
+- Repository: `mike-scibite/CreateMyCheck`
+- PR: `1`
+- Private key: `.secret/create-my-check.2026-09-11.private-key.pem`
+- Installation-token permission: `pull_requests:write`
+
+Every default can be overridden with `--app-id`, `--private-key`, `--repo`, `--pr`, `--body`, `--api-url`, or `--token-permission`.
+
+### Finding from the local reproduction
+
+On 17 September 2026, GitHub returned `403 Resource not accessible by integration` when this App called the issue-comment endpoint with an installation token narrowed to `issues:write`. The response's `X-Accepted-GitHub-Permissions` header listed both `issues=write` and `pull_requests=write`, consistent with the REST documentation, but retrying with a token narrowed to `pull_requests:write` succeeded. The workflow therefore requests `pull_requests:write` for PR comments. `--token-permission issues` remains available in the Java client to reproduce the failing behavior.

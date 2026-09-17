@@ -73,7 +73,7 @@ jobs:
 
           token_request="$(jq -nc \
             --argjson repository_id "$REPOSITORY_ID" \
-            '{repository_ids: [$repository_id], permissions: {checks: "write", issues: "write"}}')"
+            '{repository_ids: [$repository_id], permissions: {checks: "write", pull_requests: "write"}}')"
           installation_token="$(curl --fail-with-body --silent --show-error \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
