@@ -44,7 +44,8 @@ jobs:
           }
 
           key_file="$(mktemp)"
-          trap 'rm -f "$key_file"' EXIT
+          comment_response_file="$(mktemp)"
+          trap 'rm -f "$key_file" "$comment_response_file"' EXIT
           printf '%s' "$APP_PRIVATE_KEY" > "$key_file"
           chmod 600 "$key_file"
 
@@ -141,15 +142,27 @@ jobs:
 
           comment="$summary"
           comment_payload="$(jq -nc --arg body "$comment" '{body: $body}')"
-          curl --fail-with-body --silent --show-error \
+          if ! comment_http_status="$(curl --silent --show-error \
+            --output "$comment_response_file" \
+            --write-out '%{http_code}' \
             -X POST \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $installation_token" \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             -H 'Content-Type: application/json' \
             --data "$comment_payload" \
-            "$API_URL/repos/$REPOSITORY/issues/$PR_NUMBER/comments" \
-            | jq '{id, html_url}'
+            "$API_URL/repos/$REPOSITORY/issues/$PR_NUMBER/comments")"; then
+            echo '::error title=PR comment request failed::curl could not reach the GitHub API.'
+            exit 1
+          fi
+
+          if [[ ! "$comment_http_status" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error title=PR comment request failed::GitHub returned HTTP $comment_http_status."
+            echo 'GitHub API response:'
+            jq . "$comment_response_file" || cat "$comment_response_file"
+            exit 1
+          fi
+          jq '{id, html_url}' "$comment_response_file"
 
           check_run="$(jq -nc \
             --arg name 'JFrog security scan' \
