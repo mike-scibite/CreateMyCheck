@@ -1,6 +1,6 @@
 # GitHub App XRay security scan
 
-The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/workflows/toy-file-check.yml) calls the reusable [`.github/workflows/reusable-xray-report.yml`](.github/workflows/reusable-xray-report.yml) workflow. The reusable workflow reads the PR's XRay `check_result.txt`, obtains a short-lived GitHub App installation token, and calls GitHub's REST API with `curl`.
+The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/workflows/toy-file-check.yml) calls the reusable [`.github/actions/xray-report`](.github/actions/xray-report) composite action. The action reads the PR's XRay `check_result.txt`, obtains a short-lived GitHub App installation token, and calls GitHub's REST API with `curl`.
 
 The workflow counts the severity cells in the **Vulnerable Components** table and posts the totals in both a pull-request comment and the Check Run summary:
 
@@ -55,23 +55,29 @@ The REST endpoints and required Checks permission are documented by GitHub: [cre
 
 ## Reusing the report publisher
 
-Call the report publisher as a job from another workflow in this repository:
+Call the report publisher as a step from another workflow in this repository. The job owns the environment so its secrets can be passed explicitly to the action:
 
 ```yaml
 jobs:
   publish-report:
-    uses: ./.github/workflows/reusable-xray-report.yml
-    with:
-      environment-name: Mike
-      report-path: check_result.txt
-      pr-number: ${{ github.event.pull_request.number }}
-      pr-head-sha: ${{ github.event.pull_request.head.sha }}
-      repository-id: ${{ github.event.repository.id }}
+    environment: Mike
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/xray-report
+        with:
+          app-id: ${{ secrets.TOY_CHECK_APP_ID }}
+          app-private-key: ${{ secrets.TOY_CHECK_APP_PRIVATE_KEY }}
+          api-url: ${{ github.api_url }}
+          repository: ${{ github.repository }}
+          repository-id: ${{ github.event.repository.id }}
+          pr-number: ${{ github.event.pull_request.number }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
 ```
 
-The selected environment supplies `TOY_CHECK_APP_ID` and `TOY_CHECK_APP_PRIVATE_KEY`. A caller may instead pass `app-id` and `app-private-key` through the job's `secrets` map. Optional inputs customize the product name, Check Run name, report path, environment, and whether Critical findings fail the job.
+The selected environment supplies `TOY_CHECK_APP_ID` and `TOY_CHECK_APP_PRIVATE_KEY`. Optional action inputs customize the product name, Check Run name, report path, and whether Critical findings fail the job.
 
-The reusable workflow exposes the calculated conclusion, all severity counts, comment URL, and Check Run URL as job outputs. Because it is a reusable workflow rather than an action loaded from the checked-out PR, its secret-handling code stays on the caller workflow's trusted revision while only the report is read from the PR commit.
+The composite action exposes the calculated conclusion, all severity counts, comment URL, and Check Run URL as step outputs. Fork PRs are skipped, and same-repository contributors must be trusted because the action and report are loaded from the checked-out PR revision before environment secrets are passed to it.
 
 ## Local Java API reproducer
 
