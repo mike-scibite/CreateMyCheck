@@ -1,6 +1,6 @@
-# GitHub App JFrog security scan
+# GitHub App XRay security scan
 
-The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/workflows/toy-file-check.yml) reads the PR's JFrog-style `check_result.txt`, obtains a short-lived GitHub App installation token, and calls GitHub's REST API with `curl`.
+The pull-request workflow in [`.github/workflows/toy-file-check.yml`](.github/workflows/toy-file-check.yml) calls the reusable [`.github/workflows/reusable-xray-report.yml`](.github/workflows/reusable-xray-report.yml) workflow. The reusable workflow reads the PR's XRay `check_result.txt`, obtains a short-lived GitHub App installation token, and calls GitHub's REST API with `curl`.
 
 The workflow counts the severity cells in the **Vulnerable Components** table and posts the totals in both a pull-request comment and the Check Run summary:
 
@@ -19,7 +19,7 @@ Critical findings create a failed Check Run and fail the workflow. If there are 
 1. In the GitHub App's **Permissions & events**, grant **Checks: Read and write** and **Pull requests: Read and write**. No webhook subscription is needed for this workflow. The Pull requests permission allows the app to comment on pull requests.
 2. Generate a private key under the App's **Private keys** section. Downloaded keys are PEM files; GitHub only lets you download each one once.
 3. Install the App on the account or organisation that owns this repository, and grant it access to this repository. The workflow looks up that installation automatically, so there is no installation-ID secret.
-4. In this repository's **Settings → Secrets and variables → Actions**, add:
+4. In this repository's **Settings → Environments → Mike → Environment secrets**, add:
    - Secret `TOY_CHECK_APP_PRIVATE_KEY`: the complete PEM file, including `BEGIN`/`END` lines and line breaks.
    - Secret `TOY_CHECK_APP_ID`: the numeric App ID displayed on the App's settings page.
 
@@ -29,7 +29,7 @@ For a toy project installed only on your own account or organisation, you do not
 
 ## Try it
 
-Create a branch, change `check_result.txt`, and open a pull request. The Check Run is attached to the PR head commit and appears as **JFrog security scan**. This workflow intentionally skips fork pull requests because GitHub withholds repository secrets from them.
+Create a branch, change `check_result.txt`, and open a pull request. The Check Run is attached to the PR head commit and appears as **XRay security scan**. The event workflow intentionally skips fork pull requests because GitHub withholds repository secrets from them.
 
 The workflow checks out untrusted PR content only to read a text file; it never executes content from the PR. Treat contributors who can open branches in this repository as trusted, because same-repository PR workflows can receive this App private-key secret.
 
@@ -43,7 +43,7 @@ GET /repos/{owner}/{repo}/installation
         │ installation ID
         ▼
 POST /app/installations/{id}/access_tokens
-        │ token scoped to this repository, Checks + Issues: write
+        │ token scoped to this repository, Checks + Pull requests: write
         ▼
 POST /repos/{owner}/{repo}/check-runs
         │
@@ -52,6 +52,26 @@ POST /repos/{owner}/{repo}/issues/{pr_number}/comments
 ```
 
 The REST endpoints and required Checks permission are documented by GitHub: [creating check runs](https://docs.github.com/en/rest/checks/runs#create-a-check-run), [authenticating as an installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation), and [using secrets safely with fork PRs](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions).
+
+## Reusing the report publisher
+
+Call the report publisher as a job from another workflow in this repository:
+
+```yaml
+jobs:
+  publish-report:
+    uses: ./.github/workflows/reusable-xray-report.yml
+    with:
+      environment-name: Mike
+      report-path: check_result.txt
+      pr-number: ${{ github.event.pull_request.number }}
+      pr-head-sha: ${{ github.event.pull_request.head.sha }}
+      repository-id: ${{ github.event.repository.id }}
+```
+
+The selected environment supplies `TOY_CHECK_APP_ID` and `TOY_CHECK_APP_PRIVATE_KEY`. A caller may instead pass `app-id` and `app-private-key` through the job's `secrets` map. Optional inputs customize the product name, Check Run name, report path, environment, and whether Critical findings fail the job.
+
+The reusable workflow exposes the calculated conclusion, all severity counts, comment URL, and Check Run URL as job outputs. Because it is a reusable workflow rather than an action loaded from the checked-out PR, its secret-handling code stays on the caller workflow's trusted revision while only the report is read from the PR commit.
 
 ## Local Java API reproducer
 
