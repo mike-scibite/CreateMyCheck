@@ -1,0 +1,36 @@
+name: XRay security scan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  publish-report:
+    # Repository secrets are unavailable to fork PRs. This also prevents an
+    # untrusted fork from receiving the GitHub App private key.
+    if: github.event.pull_request.head.repo.fork == false
+    environment: Mike
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the report from the pull-request revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Publish XRay report
+        uses: ./.github/actions/xray-report
+        with:
+          app-id: ${{ secrets.TOY_CHECK_APP_ID }}
+          app-private-key: ${{ secrets.TOY_CHECK_APP_PRIVATE_KEY }}
+          api-url: ${{ github.api_url }}
+          repository: ${{ github.repository }}
+          repository-id: ${{ github.event.repository.id }}
+          pr-number: ${{ github.event.pull_request.number }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
+          report-path: check_result.txt
+          product-name: XRay
+          check-name: XRay security scan

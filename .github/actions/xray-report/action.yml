@@ -1,0 +1,87 @@
+name: Publish XRay report
+description: Parse an XRay text report and publish a PR comment and GitHub Check Run
+
+inputs:
+  app-id:
+    description: GitHub App ID
+    required: true
+  app-private-key:
+    description: GitHub App RSA private key in PEM format
+    required: true
+  api-url:
+    description: GitHub REST API base URL
+    required: true
+  repository:
+    description: Target repository in OWNER/REPO format
+    required: true
+  repository-id:
+    description: Numeric repository ID used to scope the installation token
+    required: true
+  pr-number:
+    description: Pull request that receives the report comment
+    required: true
+  pr-head-sha:
+    description: Pull-request commit to annotate with a Check Run
+    required: true
+  report-path:
+    description: Path to the XRay text report
+    required: false
+    default: check_result.txt
+  product-name:
+    description: Product name used in generated messages
+    required: false
+    default: XRay
+  check-name:
+    description: Name of the GitHub Check Run and report heading
+    required: false
+    default: XRay security scan
+  fail-on-critical:
+    description: Fail after publishing when Critical findings exist
+    required: false
+    default: "true"
+
+outputs:
+  conclusion:
+    description: Check Run conclusion calculated from the report
+    value: ${{ steps.publish.outputs.conclusion }}
+  critical-count:
+    description: Number of Critical findings
+    value: ${{ steps.publish.outputs.critical-count }}
+  high-count:
+    description: Number of High findings
+    value: ${{ steps.publish.outputs.high-count }}
+  medium-count:
+    description: Number of Medium findings
+    value: ${{ steps.publish.outputs.medium-count }}
+  low-count:
+    description: Number of Low findings
+    value: ${{ steps.publish.outputs.low-count }}
+  unknown-count:
+    description: Number of Unknown findings
+    value: ${{ steps.publish.outputs.unknown-count }}
+  comment-url:
+    description: URL of the created pull-request comment
+    value: ${{ steps.publish.outputs.comment-url }}
+  check-run-url:
+    description: URL of the created Check Run
+    value: ${{ steps.publish.outputs.check-run-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Parse and publish report
+      id: publish
+      shell: bash
+      env:
+        APP_ID: ${{ inputs.app-id }}
+        APP_PRIVATE_KEY: ${{ inputs.app-private-key }}
+        API_URL: ${{ inputs.api-url }}
+        REPOSITORY: ${{ inputs.repository }}
+        REPOSITORY_ID: ${{ inputs.repository-id }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        PR_HEAD_SHA: ${{ inputs.pr-head-sha }}
+        REPORT_PATH: ${{ inputs.report-path }}
+        PRODUCT_NAME: ${{ inputs.product-name }}
+        CHECK_NAME: ${{ inputs.check-name }}
+        FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
+      run: bash "$GITHUB_ACTION_PATH/publish.sh"
